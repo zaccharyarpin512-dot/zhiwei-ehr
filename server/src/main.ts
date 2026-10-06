@@ -1,3 +1,5 @@
+// BigInt 序列化垫片（PRD 9.1：BigInt 主键→JSON number）
+(BigInt.prototype as any).toJSON = function () { return Number(this); };
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
