@@ -1,0 +1,698 @@
+// Prisma schema —— 智未EHR（ZW-PRD-2026-001 v1.6 第 8 节数据模型）
+// 通用约定：id/tenant_id/created_at/updated_at/created_by/updated_by/is_deleted
+// Sprint 1 范围：M01 组织人员 / M02 指标库 / M10-M11 待办消息审计偏好 / 认证
+// 后续 Sprint 按 PRD 第 8 节逐模块追加。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum EmpStatus {
+  ACTIVE
+  PROBATION
+  RESIGNED
+}
+
+enum IndicatorStatus {
+  ENABLED
+  DISABLED
+}
+
+enum SourceType {
+  dept_report
+  self_report
+  auto_system
+  manager_review
+}
+
+enum StatScope {
+  current
+  ytd
+  cumulative
+}
+
+enum CumulativeFrom {
+  task_start
+  hire_date
+  custom_date
+}
+
+// ---------- 认证与租户 ----------
+model Tenant {
+  id        BigInt   @id @default(autoincrement())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  users     User[]
+  @@map("tenant")
+}
+
+model User {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt   @map("tenant_id")
+  mobile       String
+  passwordHash String   @map("password_hash")
+  name         String
+  roles        String[] @default(["employee"]) // super_admin/hr_admin/hr/manager/employee (+data_filler 叠加)
+  failedCount  Int      @default(0) @map("failed_count")
+  lockedUntil  DateTime? @map("locked_until")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+  preference   UserPreference?
+  @@unique([tenantId, mobile])
+  @@map("user")
+}
+
+model UserPreference {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt   @map("tenant_id")
+  userId       BigInt   @unique @map("user_id")
+  theme        String   @default("coral") // coral/sky/sun/sage（FR-M11-006）
+  notifyConfig Json?    @map("notify_config")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  user         User     @relation(fields: [userId], references: [id])
+  @@map("user_preference")
+}
+
+// ---------- M01 组织与人员 ----------
+model Department {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt   @map("tenant_id")
+  code          String
+  name          String
+  parentId      BigInt?  @map("parent_id")
+  managerUserId BigInt?  @map("manager_user_id")
+  sortNo        Int      @default(0) @map("sort_no")
+  status        String   @default("启用")
+  isDeleted     Boolean  @default(false) @map("is_deleted")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  @@unique([tenantId, code])
+  @@map("department")
+}
+
+model Employee {
+  id            BigInt    @id @default(autoincrement())
+  tenantId      BigInt    @map("tenant_id")
+  empNo         String    @map("emp_no")
+  name          String
+  mobile        String
+  email         String?
+  hireDate      DateTime  @map("hire_date")
+  departmentId  BigInt    @map("department_id")
+  position      String
+  jobLevel      String?   @map("job_level")
+  managerEmpId  BigInt?   @map("manager_emp_id")
+  userId        BigInt?   @map("user_id")
+  status        EmpStatus @default(ACTIVE)
+  isDeleted     Boolean   @default(false) @map("is_deleted")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  @@unique([tenantId, empNo])
+  @@unique([tenantId, mobile])
+  @@map("employee")
+}
+
+model EmployeeTransferLog {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt   @map("tenant_id")
+  empId         BigInt   @map("emp_id")
+  fromDeptId    BigInt?  @map("from_dept_id")
+  toDeptId      BigInt   @map("to_dept_id")
+  effectiveDate DateTime @map("effective_date")
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  @@map("employee_transfer_log")
+}
+
+// ---------- M02 指标库 ----------
+model IndicatorCategory {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt   @map("tenant_id")
+  name      String
+  sortNo    Int      @default(0) @map("sort_no")
+  isDeleted Boolean  @default(false) @map("is_deleted")
+  createdAt DateTime @default(now()) @map("created_at")
+  indicators Indicator[]
+  @@map("indicator_category")
+}
+
+model Indicator {
+  id              BigInt           @id @default(autoincrement())
+  tenantId        BigInt           @map("tenant_id")
+  name            String
+  categoryId      BigInt?          @map("category_id")
+  definition      String?
+  calcDesc        String?          @map("calc_desc")
+  scoreRule       Json?            @map("score_rule") // {type:'rate',base:100,cap:120,floor:0}
+  statScope       StatScope        @default(current) @map("stat_scope")
+  cumulativeFrom  CumulativeFrom?  @map("cumulative_from") // statScope=cumulative 时必填
+  sourceType      SourceType       @map("source_type")
+  dataOwnerDeptId BigInt?          @map("data_owner_dept_id") // sourceType=dept_report 时必填
+  unit            String?
+  positionTags    Json?            @map("position_tags")
+  status          IndicatorStatus  @default(ENABLED)
+  aiAssisted      Boolean          @default(false) @map("ai_assisted")
+  isDeleted       Boolean          @default(false) @map("is_deleted")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+  category        IndicatorCategory? @relation(fields: [categoryId], references: [id])
+  @@map("indicator")
+}
+
+model DeptDataFiller {
+  id          BigInt   @id @default(autoincrement())
+  tenantId    BigInt   @map("tenant_id")
+  deptId      BigInt   @map("dept_id")
+  fillerEmpId BigInt   @map("filler_emp_id")
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at")
+  @@unique([tenantId, deptId, fillerEmpId])
+  @@map("dept_data_filler")
+}
+
+// ---------- M10 待办 / 消息，M11 审计 ----------
+model Todo {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt   @map("tenant_id")
+  userId    BigInt   @map("user_id")
+  bizType   String   @map("biz_type")
+  bizId     String   @map("biz_id")
+  title     String
+  actionUrl String?  @map("action_url")
+  status    String   @default("待处理") // 待处理/已完成/已过期
+  dueAt     DateTime? @map("due_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("todo")
+}
+
+model Message {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt   @map("tenant_id")
+  userId    BigInt   @map("user_id")
+  title     String
+  content   String?
+  bizType   String?  @map("biz_type")
+  readFlag  Boolean  @default(false) @map("read_flag")
+  createdAt DateTime @default(now()) @map("created_at")
+  @@map("message")
+}
+
+model AuditLog {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt   @map("tenant_id")
+  userId       BigInt?  @map("user_id")
+  action       String
+  resourceType String   @map("resource_type")
+  resourceId   String?  @map("resource_id")
+  before       Json?
+  after        Json?
+  ip           String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  @@map("audit_log")
+}
+
+// ---------- M03 绩效方案（FR-M03-001/002/003/005）----------
+enum SchemeMode {
+  kpi
+  okr
+  kpi_okr
+  e360 // PRD 值 "360"
+  kpi_360
+}
+
+enum SchemeStatus {
+  DRAFT
+  LOCKED
+  DISABLED
+}
+
+enum PeriodType {
+  month
+  quarter
+  half_year
+  year
+}
+
+enum ReviewerType {
+  self
+  manager
+  manager_up
+  peer
+  subordinate
+}
+
+enum NodeType {
+  goal_setting
+  goal_approval
+  data_fill
+  self_review
+  peer_review
+  manager_review
+  calibrating
+  result_confirm
+  appealing
+  interviewing
+  archived
+}
+
+model Scheme {
+  id               BigInt   @id @default(autoincrement())
+  tenantId         BigInt   @map("tenant_id")
+  name             String
+  mode             SchemeMode
+  periodType       PeriodType @map("period_type")
+  scopeFilter      Json?    @map("scope_filter")
+  linkageConfig    Json?    @map("linkage_config")
+  taskCreditConfig Json?    @map("task_credit_config")
+  status           SchemeStatus @default(DRAFT)
+  version          Int      @default(1)
+  isDeleted        Boolean  @default(false) @map("is_deleted")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  nodes            SchemeNode[]
+  indicators       SchemeIndicator[]
+  questions        SchemeQuestion[]
+  gradeRules       SchemeGradeRule[]
+  reviewers        SchemeReviewer[]
+  tasks            AssessmentTask[]
+  @@map("scheme")
+}
+
+model SchemeNode {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   BigInt   @map("tenant_id")
+  schemeId   BigInt   @map("scheme_id")
+  nodeType   NodeType @map("node_type")
+  seq        Int
+  timeConfig Json?    @map("time_config")
+  enabled    Boolean  @default(true)
+  scheme     Scheme   @relation(fields: [schemeId], references: [id])
+  @@map("scheme_node")
+}
+
+model SchemeIndicator {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt   @map("tenant_id")
+  schemeId     BigInt   @map("scheme_id")
+  indicatorId  BigInt   @map("indicator_id")
+  weight       Decimal  @db.Decimal(5, 2)
+  defaultTarget Decimal? @map("default_target") @db.Decimal(18, 4)
+  scheme       Scheme   @relation(fields: [schemeId], references: [id])
+  @@map("scheme_indicator")
+}
+
+model SchemeQuestion {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt   @map("tenant_id")
+  schemeId  BigInt   @map("scheme_id")
+  title     String
+  qType     String   @map("q_type")
+  options   Json?
+  required  Boolean  @default(true)
+  scheme    Scheme   @relation(fields: [schemeId], references: [id])
+  @@map("scheme_question")
+}
+
+model SchemeGradeRule {
+  id         BigInt   @id @default(autoincrement())
+  tenantId   BigInt   @map("tenant_id")
+  schemeId   BigInt   @map("scheme_id")
+  grade      String
+  minScore   Decimal  @map("min_score") @db.Decimal(6, 2)
+  maxScore   Decimal  @map("max_score") @db.Decimal(6, 2)
+  ratioLimit Decimal? @map("ratio_limit") @db.Decimal(5, 2)
+  sortNo     Int      @map("sort_no")
+  scheme     Scheme   @relation(fields: [schemeId], references: [id])
+  @@map("scheme_grade_rule")
+}
+
+model SchemeReviewer {
+  id           BigInt       @id @default(autoincrement())
+  tenantId     BigInt       @map("tenant_id")
+  schemeId     BigInt       @map("scheme_id")
+  reviewerType ReviewerType @map("reviewer_type")
+  weight       Decimal      @db.Decimal(5, 2)
+  config       Json?
+  scheme       Scheme       @relation(fields: [schemeId], references: [id])
+  @@map("scheme_reviewer")
+}
+
+// ---------- M05 考核任务与考核单（FR-M05-001，PRD 7.1/7.2 状态机）----------
+enum TaskStatus {
+  RUNNING
+  FINISHED
+  TERMINATED
+}
+
+enum RecordStatus {
+  goal_setting
+  goal_approval
+  data_fill
+  self_review
+  peer_review
+  manager_review
+  calibrating
+  result_confirm
+  appealing
+  interviewing
+  archived
+}
+
+model AssessmentTask {
+  id            BigInt     @id @default(autoincrement())
+  tenantId      BigInt     @map("tenant_id")
+  schemeId      BigInt     @map("scheme_id")
+  schemeVersion Int        @map("scheme_version")
+  name          String
+  period        String
+  startDate     DateTime   @map("start_date")
+  endDate       DateTime   @map("end_date")
+  status        TaskStatus @default(RUNNING)
+  orgSnapshot   Json?      @map("org_snapshot")
+  linkedTaskIds Json?      @map("linked_task_ids")
+  isDeleted     Boolean    @default(false) @map("is_deleted")
+  createdAt     DateTime   @default(now()) @map("created_at")
+  scheme        Scheme     @relation(fields: [schemeId], references: [id])
+  records       AssessmentRecord[]
+  @@map("assessment_task")
+}
+
+model AssessmentRecord {
+  id             BigInt       @id @default(autoincrement())
+  tenantId       BigInt       @map("tenant_id")
+  taskId         BigInt       @map("task_id")
+  empId          BigInt       @map("emp_id")
+  deptSnapshotId BigInt?      @map("dept_snapshot_id")
+  managerEmpId   BigInt?      @map("manager_emp_id")
+  status         RecordStatus @default(goal_setting)
+  goalSubmittedAt DateTime?   @map("goal_submitted_at")
+  selfSummary    String?      @map("self_summary")
+  selfSubmittedAt DateTime?   @map("self_submitted_at")
+  finalScore     Decimal?     @map("final_score") @db.Decimal(8, 2)
+  isProvisional  Boolean      @default(false) @map("is_provisional")
+  grade          String?
+  publishTime    DateTime?    @map("publish_time")
+  rollupDetail   Json?        @map("rollup_detail")
+  task           AssessmentTask @relation(fields: [taskId], references: [id])
+  indicators     RecordIndicator[]
+  reviewers      RecordReviewer[]
+  statusLogs     RecordStatusLog[]
+  @@unique([taskId, empId])
+  @@map("assessment_record")
+}
+
+model RecordIndicator {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       BigInt   @map("tenant_id")
+  recordId       BigInt   @map("record_id")
+  indicatorId    BigInt   @map("indicator_id")
+  targetValue    Decimal? @map("target_value") @db.Decimal(18, 4)
+  selfScore      Decimal? @map("self_score") @db.Decimal(8, 2)
+  selfComment    String?  @map("self_comment")
+  managerScore   Decimal? @map("manager_score") @db.Decimal(8, 2)
+  managerComment String?  @map("manager_comment")
+  weightedScore  Decimal? @map("weighted_score") @db.Decimal(8, 2)
+  scoreSource    String?  @map("score_source")
+  dataFillItemId BigInt?  @map("data_fill_item_id")
+  record         AssessmentRecord @relation(fields: [recordId], references: [id])
+  @@map("record_indicator")
+}
+
+model RecordReviewer {
+  id              BigInt   @id @default(autoincrement())
+  tenantId        BigInt   @map("tenant_id")
+  recordId        BigInt   @map("record_id")
+  reviewerEmpId   BigInt   @map("reviewer_emp_id")
+  reviewerType    String   @map("reviewer_type")
+  status          String   @default("待评")
+  relationScore   Decimal? @map("relation_score") @db.Decimal(8, 2)
+  relationComment String?  @map("relation_comment")
+  answers         Json?    // [{questionId, value}]（360 问卷作答）
+  submittedAt     DateTime? @map("submitted_at")
+  record          AssessmentRecord @relation(fields: [recordId], references: [id])
+  @@map("record_reviewer")
+}
+
+model RecordStatusLog {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       BigInt   @map("tenant_id")
+  recordId       BigInt   @map("record_id")
+  fromStatus     String   @map("from_status")
+  toStatus       String   @map("to_status")
+  operatorEmpId  BigInt?  @map("operator_emp_id")
+  note           String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  record         AssessmentRecord @relation(fields: [recordId], references: [id])
+  @@map("record_status_log")
+}
+
+// ---------- 指标数据填报（FR-M05-008，v1.1/v1.2）----------
+enum FillOrderStatus {
+  PENDING
+  SUBMITTED
+  RETURNED
+  SETTLED
+}
+
+enum ObjectionStatus {
+  PENDING
+  KEPT
+  FIXED
+}
+
+model DataFillOrder {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       BigInt   @map("tenant_id")
+  taskId         BigInt   @map("task_id")
+  dataOwnerDeptId BigInt  @map("data_owner_dept_id")
+  fillerEmpId    BigInt?  @map("filler_emp_id")
+  status         FillOrderStatus @default(PENDING)
+  totalRows      Int      @map("total_rows")
+  filledRows     Int      @default(0) @map("filled_rows")
+  submittedAt    DateTime? @map("submitted_at")
+  returnReason   String?  @map("return_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  items          DataFillItem[]
+  @@map("data_fill_order")
+}
+
+model DataFillItem {
+  id               BigInt   @id @default(autoincrement())
+  tenantId         BigInt   @map("tenant_id")
+  orderId          BigInt   @map("order_id")
+  recordId         BigInt   @map("record_id")
+  indicatorId      BigInt   @map("indicator_id")
+  targetValue      Decimal? @map("target_value") @db.Decimal(18, 4)
+  actualValue      Decimal? @map("actual_value") @db.Decimal(18, 4)
+  statScope        String   @map("stat_scope")
+  statWindowStart  DateTime? @map("stat_window_start")
+  statWindowEnd    DateTime? @map("stat_window_end")
+  evidenceNote     String?  @map("evidence_note")
+  evidenceFileUrl  String?  @map("evidence_file_url")
+  autoScore        Decimal? @map("auto_score") @db.Decimal(8, 2)
+  scoreSource      String?  @map("score_source")
+  settled          Boolean  @default(false)
+  defaultApplied   Boolean  @default(false) @map("default_applied")
+  filledAt         DateTime? @map("filled_at")
+  filledByEmpId    BigInt?  @map("filled_by_emp_id")
+  order            DataFillOrder @relation(fields: [orderId], references: [id])
+  @@unique([orderId, recordId, indicatorId])
+  @@map("data_fill_item")
+}
+
+model IndicatorObjection {
+  id             BigInt   @id @default(autoincrement())
+  tenantId       BigInt   @map("tenant_id")
+  dataFillItemId BigInt   @map("data_fill_item_id")
+  recordId       BigInt   @map("record_id")
+  raisedByEmpId  BigInt   @map("raised_by_emp_id")
+  reason         String
+  evidenceFileUrl String? @map("evidence_file_url")
+  status         ObjectionStatus @default(PENDING)
+  oldValue       Decimal? @map("old_value") @db.Decimal(18, 4)
+  newValue       Decimal? @map("new_value") @db.Decimal(18, 4)
+  handlerEmpId   BigInt?  @map("handler_emp_id")
+  handledAt      DateTime? @map("handled_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  @@map("indicator_objection")
+}
+
+// ---------- WP-22 结果申诉与面谈（FR-M05-006 / FR-M07-001）----------
+enum AppealStatus {
+  PENDING
+  UPHELD
+  ADJUSTED
+}
+
+model Appeal {
+  id            BigInt        @id @default(autoincrement())
+  tenantId      BigInt        @map("tenant_id")
+  recordId      BigInt        @map("record_id")
+  reason        String
+  status        AppealStatus  @default(PENDING)
+  resultNote    String?       @map("result_note")
+  newScore      Decimal?      @map("new_score") @db.Decimal(8, 2)
+  newGrade      String?       @map("new_grade")
+  handlerEmpId  BigInt?       @map("handler_emp_id")
+  handledAt     DateTime?     @map("handled_at")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  @@map("appeal")
+}
+
+model InterviewRecord {
+  id                BigInt    @id @default(autoincrement())
+  tenantId          BigInt    @map("tenant_id")
+  recordId          BigInt    @map("record_id")
+  managerEmpId      BigInt    @map("manager_emp_id")
+  summary           String
+  improvementGoals  String?   @map("improvement_goals")
+  employeeComment   String?   @map("employee_comment")
+  employeeConfirmed Boolean   @default(false) @map("employee_confirmed")
+  confirmedAt       DateTime? @map("confirmed_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  @@map("interview_record")
+}
+
+// ---------- WP-30 OKR 目标管理（FR-M04-001/002/003/004）----------
+model Objective {
+  id           BigInt    @id @default(autoincrement())
+  tenantId     BigInt    @map("tenant_id")
+  empId        BigInt    @map("emp_id")
+  period       String
+  title        String
+  description  String?
+  alignToId    BigInt?   @map("align_to_id") // 对齐到上级 O（环检测=数据库约束 + 应用层校验）
+  progress     Int       @default(0) // 0-100 按 KR 权重自动计算
+  status       String    @default("active") // active/done/cancelled
+  score        Decimal?  @db.Decimal(8, 2) // 周期结束 KR 打分后计算
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  keyResults   KeyResult[]
+  @@map("objective")
+}
+
+model KeyResult {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt   @map("tenant_id")
+  objectiveId   BigInt   @map("objective_id")
+  title         String
+  measureType   String   @map("measure_type") // number/percent/milestone/currency
+  baseline      Decimal? @db.Decimal(18, 4)
+  target        Decimal  @db.Decimal(18, 4)
+  current       Decimal  @default(0) @db.Decimal(18, 4)
+  weight        Decimal  @default(1) @db.Decimal(5, 2)
+  confidence    String   @default("on_track") // on_track/at_risk/delayed
+  finalScore    Decimal? @map("final_score") @db.Decimal(8, 2)
+  objective     Objective @relation(fields: [objectiveId], references: [id])
+  @@map("key_result")
+}
+
+// ---------- WP-31/32 过程任务与悬赏集市（FR-M12-001/002）----------
+enum WorkTaskStatus {
+  assigned
+  market_open
+  in_progress
+  submitted
+  accepted
+  rejected
+}
+
+model WorkTask {
+  id            BigInt          @id @default(autoincrement())
+  tenantId      BigInt          @map("tenant_id")
+  title         String
+  description   String?
+  assigneeEmpId BigInt?         @map("assignee_emp_id") // null=悬赏待认领
+  publisherEmpId BigInt         @map("publisher_emp_id")
+  priority      String          @default("medium") // urgent/high/medium/low
+  status        WorkTaskStatus  @default(assigned)
+  source        String          @default("assign") // assign/market/self
+  scope         String          @default("dept") // dept/company（悬赏可见范围）
+  dueDate       DateTime?       @map("due_date")
+  rewardPoints  Int             @default(0) // 悬赏积分
+  krId          BigInt?         @map("kr_id")
+  acceptedAt    DateTime?       @map("accepted_at")
+  createdAt     DateTime        @default(now()) @map("created_at")
+  @@map("work_task")
+}
+
+model MarketClaimLog {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt   @map("tenant_id")
+  taskId       BigInt   @map("task_id")
+  claimerEmpId BigInt   @map("claimer_emp_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  @@unique([taskId, claimerEmpId])
+  @@map("market_claim_log")
+}
+
+model RewardAccount {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt   @map("tenant_id")
+  empId     BigInt   @map("emp_id")
+  balance   Int      @default(0)
+  @@unique([tenantId, empId])
+  @@map("reward_account")
+}
+
+model RewardFlow {
+  id            BigInt   @id @default(autoincrement())
+  tenantId      BigInt   @map("tenant_id")
+  empId         BigInt   @map("emp_id")
+  bizType       String   @map("biz_type") // task_reward/market_reward/penalty
+  bizId         String   @map("biz_id")
+  points        Int
+  balanceAfter  Int      @map("balance_after")
+  createdAt     DateTime @default(now()) @map("created_at")
+  @@unique([bizType, bizId])
+  @@map("reward_flow")
+}
+
+// ---------- WP-33 日报周报（FR-M12-003）----------
+model Report {
+  id              BigInt   @id @default(autoincrement())
+  tenantId        BigInt   @map("tenant_id")
+  empId           BigInt   @map("emp_id")
+  reportType      String   @map("report_type") // daily/weekly
+  periodStart     DateTime @map("period_start")
+  periodEnd       DateTime @map("period_end")
+  donePart        String   @map("done_part")
+  planPart        String   @map("plan_part")
+  problemPart     String?  @map("problem_part")
+  relatedTaskIds  Json?    @map("related_task_ids")
+  status          String   @default("submitted") // draft/submitted/commented
+  commentText     String?  @map("comment_text")
+  commentByEmpId  BigInt?  @map("comment_by_emp_id")
+  commentedAt     DateTime? @map("commented_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  @@map("report")
+}
+
+model AiConfig {
+  id        BigInt   @id @default(autoincrement())
+  tenantId  BigInt   @unique @map("tenant_id")
+  enabled   Boolean  @default(true)
+  provider  String   @default("builtin")
+  baseUrl   String?  @map("base_url")
+  apiKey    String?  @map("api_key")
+  maskMode  String   @default("mask") @map("mask_mode")
+  @@map("ai_config")
+}
+model AiInvocationLog {
+  id           BigInt   @id @default(autoincrement())
+  tenantId     BigInt   @map("tenant_id")
+  userId       BigInt   @map("user_id")
+  scene        String
+  inputSummary String?  @map("input_summary")
+  output       Json?
+  createdAt    DateTime @default(now()) @map("created_at")
+  @@map("ai_invocation_log")
+}

@@ -1,0 +1,43 @@
+/* 智未EHR 设计令牌（FR-M11-006 四套皮肤）
+   来源：《智未EHR-界面设计原型-v1.html》v1.2
+   规则：业务组件只允许引用本文件变量；语义色（--red/--orange/--green）全局一致不参与换肤 */
+:root {
+  --pri: #FF5844;        /* 珊瑚橙·品牌默认主色 */
+  --pri-d: #D63A26;      /* 主色 hover/press */
+  --pri-l: #FDEAE5;      /* 主色浅底（标签/导航高亮） */
+  --pri-ring: #F6D2CA;   /* 主色描边光环 */
+  --pri-xl: #FBF1ED;     /* 主色极浅底（容器） */
+  --pri-xxl: #FDF8F4;    /* 主色近白底 */
+  --pri-g: #FF9C8A;      /* 渐变浅端 */
+  --pri-a: rgba(255, 88, 68, .18); /* 图表填充 */
+
+  --bg: #f5f6f8;
+  --line: #e5e6eb;
+  --txt: #1f2329;
+  --txt2: #4e5969;
+  --txt3: #86909c;
+
+  /* 语义色：任何皮肤下保持一致 */
+  --red: #f53f3f;        /* 紧急/逾期/驳回 */
+  --orange: #ff7d00;     /* 高优先级/进行中节点 */
+  --green: #00b42a;      /* 完成/通过/已归档 */
+  --gold: #F7D78C;       /* 悬赏积分 */
+}
+
+[data-theme="sky"] {
+  --pri: #2E7FC2; --pri-d: #1F629B; --pri-l: #E3F0FA; --pri-ring: #C3DCF2;
+  --pri-xl: #EFF6FC; --pri-xxl: #F6FAFD; --pri-g: #8FBFE8; --pri-a: rgba(46, 127, 194, .18);
+}
+[data-theme="sun"] {
+  --pri: #E8920C; --pri-d: #C87708; --pri-l: #FCF0DA; --pri-ring: #F5D9A8;
+  --pri-xl: #FBF5E9; --pri-xxl: #FDFAF3; --pri-g: #F5C36A; --pri-a: rgba(232, 146, 12, .18);
+}
+[data-theme="sage"] {
+  --pri: #5E8A6B; --pri-d: #4A7359; --pri-l: #E6EEE7; --pri-ring: #C9DACB;
+  --pri-xl: #F1F5F1; --pri-xxl: #F8FAF8; --pri-g: #A3C2AA; --pri-a: rgba(94, 138, 107, .18);
+}
+
+/* AntD 主题映射：CSS 变量 → Ant Design token */
+:root {
+  --antd-primary: var(--pri);
+}

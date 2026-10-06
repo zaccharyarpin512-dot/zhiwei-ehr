@@ -1,0 +1,8 @@
+{
+  "compilerOptions": {
+    "target": "ES2021", "module": "ESNext", "moduleResolution": "bundler",
+    "strict": true, "jsx": "preserve", "skipLibCheck": true,
+    "noEmit": true, "types": ["vitest/globals"]
+  },
+  "include": ["src"]
+}
