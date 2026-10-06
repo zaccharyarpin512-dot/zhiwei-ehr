@@ -49,7 +49,7 @@ export default function SchemePage() {
     try {
       await api('/api/v1/schemes', { method: 'POST', body: JSON.stringify({
         name: v.name, mode: v.mode, periodType: v.periodType,
-        scopeFilter: v.scopeFilter || {}, nodes: v.nodes.map((n: string) => ({ nodeType: n })),
+        scopeFilter: v.scopeFilter || {}, nodes: v.nodes.map((n: string, i: number) => ({ nodeType: n, seq: i + 1 })),
         indicators: v.indicators, reviewers: v.reviewers || [{ reviewerType: 'self', weight: 20 }, { reviewerType: 'manager', weight: 80 }],
         gradeRules: v.gradeRules || [
           { grade: 'S', minScore: 90, maxScore: 100, sortNo: 1 }, { grade: 'A', minScore: 80, maxScore: 89.99, sortNo: 2 },

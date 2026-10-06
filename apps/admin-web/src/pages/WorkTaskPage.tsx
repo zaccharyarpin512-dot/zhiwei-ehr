@@ -4,7 +4,7 @@ import { api } from '../api';
 
 // 过程任务管理 + 悬赏集市（W-18/W-19：下达/三视图/验收/集市认领）
 export default function WorkTaskPage() {
-  const [view, setView] = useState('mine');
+  const [view, setView] = useState('all');
   const [list, setList] = useState<any[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [form] = Form.useForm();
@@ -47,7 +47,7 @@ export default function WorkTaskPage() {
   return (
     <Card title="过程任务与悬赏集市" extra={<Button type="primary" onClick={() => setCreateOpen(true)}>下达任务 / 发布悬赏</Button>}>
       <Tabs activeKey={view} onChange={(k) => setView(k as string)} items={[
-        { key: 'mine', label: '我的任务' }, { key: 'published', label: '我发布的' }, { key: 'market', label: '任务集市' },
+        { key: 'all', label: '全部任务' }, { key: 'mine', label: '我的任务' }, { key: 'published', label: '我发布的' }, { key: 'market', label: '任务集市' },
       ]} />
       <Table rowKey="id" dataSource={list} pagination={false} columns={[
         { title: '任务', dataIndex: 'title', render: (t, r: any) => <Space>{t}{Number(r.rewardPoints) > 0 && <Tag color="gold">🪙{r.rewardPoints}</Tag>}</Space> },
@@ -86,7 +86,7 @@ export default function WorkTaskPage() {
 export function Dashboard() {
   const [todos, setTodos] = useState<any[]>([]);
   const [tasks, setTasks] = useState<any[]>([]);
-  useEffect(() => { api<any[]>('/api/v1/todos?status=待处理').then(setTodos).catch(() => {}); api<any[]>('/api/v1/tasks').then(setTasks).catch(() => {}); }, []);
+  useEffect(() => { api<any[]>('/api/v1/todos').then((l) => setTodos(l.filter((t: any) => t.status === '待处理'))).catch(() => {}); api<any[]>('/api/v1/tasks').then(setTasks).catch(() => {}); }, []);
   const running = tasks.filter((t) => t.status === 'RUNNING');
   return (
     <Row gutter={16}>

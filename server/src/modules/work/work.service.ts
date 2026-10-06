@@ -47,13 +47,18 @@ export class WorkService {
   }
 
   // 我的任务列表（我执行的+我发布的+集市待认领）
-  async list(view: 'mine' | 'published' | 'market') {
+  async list(view: 'mine' | 'published' | 'market' | 'all') {
     const tid = mustCtx().tenantId;
     const c = ctx();
+    const isAdmin = (c!.roles || []).some((r: string) => r === 'hr_admin' || r === 'super_admin');
     const where: any = { tenantId: tid };
-    if (view === 'mine') where.assigneeEmpId = c!.empId ?? -1;
-    else if (view === 'published') where.publisherEmpId = c!.empId ?? -1;
-    else where.status = 'market_open';
+    if (view === 'all') {
+      // HR/管理员看全部；普通员工只能看自己相关的
+      if (!isAdmin) where.OR = [{ assigneeEmpId: c!.empId ?? -1 }, { publisherEmpId: c!.empId ?? -1 }];
+    } else if (view === 'mine') where.assigneeEmpId = c!.empId ?? -1;
+    else if (view === 'published') {
+      if (isAdmin) { /* 管理员：全部已发布 */ } else where.publisherEmpId = c!.empId ?? -1;
+    } else where.status = 'market_open';
     const list = await this.prisma.workTask.findMany({ where, orderBy: { id: 'desc' } });
     return list.map((t: any) => ({ ...t, id: Number(t.id), rewardPoints: Number(t.rewardPoints) }));
   }

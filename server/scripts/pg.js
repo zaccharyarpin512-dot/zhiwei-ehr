@@ -68,6 +68,8 @@ function waitReady(timeoutMs = 30000) {
 
 async function startPg() {
   ensureBin();
+  // 已有实例在跑（如开发环境常驻 PG）→ 直接复用，避免端口冲突
+  try { await waitReady(1500); return { port: PORT, reused: true }; } catch { /* 继续启动新实例 */ }
   const env = cleanEnv();
   const origCwd = process.cwd();
   process.chdir(HOME);

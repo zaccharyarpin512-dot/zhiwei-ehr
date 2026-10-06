@@ -67,7 +67,7 @@ export default function OrgPage() {
             onChange={(v) => { setStatus(v); setPage(1); }}
           />
           <span style={{ flex: 1 }} />
-          <Button icon={<PlusOutlined />} type="primary" onClick={() => message.info('新建员工：见后续 WP 完善表单')}>新建员工</Button>
+          <EmployeeCreateButton onCreated={() => window.location.reload()} />
           <Upload
             accept=".xlsx"
             showUploadList={false}

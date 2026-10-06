@@ -27,5 +27,9 @@ export default async function globalSetup() {
   const opts = { env: childEnv, stdio: 'pipe' as const, cwd: __dirname + '/..' };
   const cli = findPrismaCli();
   execFileSync(process.execPath, [cli, 'db', 'push', '--skip-generate'], opts);
-  execFileSync(process.execPath, [cli, 'generate'], opts);
+  // 引擎已生成则跳过 generate——开发服务运行时会锁定 query_engine DLL，覆盖会 EPERM
+  const engine = path.join(path.dirname(cli), '..', '..', '.prisma', 'client', 'query_engine-windows.dll.node');
+  if (!fs.existsSync(engine)) {
+    execFileSync(process.execPath, [cli, 'generate'], opts);
+  }
 }
