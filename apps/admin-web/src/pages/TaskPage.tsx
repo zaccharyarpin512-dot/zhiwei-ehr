@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Card, Col, message, Modal, Progress, Row, Space, Statistic, Table, Tag } from 'antd';
+import { Button, Card, Col, DatePicker, Form, Input, message, Modal, Progress, Row, Select, Space, Statistic, Table, Tag } from 'antd';
 import { api } from '../api';
 
 const NODE_LABEL: Record<string, string> = {
@@ -12,12 +12,37 @@ const NODE_LABEL: Record<string, string> = {
 export default function TaskPage() {
   const [list, setList] = useState<any[]>([]);
   const [detail, setDetail] = useState<any>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [schemes, setSchemes] = useState<any[]>([]);
+  const [form] = Form.useForm();
 
   const load = useCallback(async () => {
     const l = await api<any[]>('/api/v1/tasks');
     setList(l);
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  // 发起考核任务（FR-M05-001）：选方案 → 命名/定周期 → 组织快照批量生成考核单
+  const openCreate = async () => {
+    const sc = await api<any[]>('/api/v1/schemes');
+    const usable = sc.filter((x: any) => x.status !== 'DISABLED');
+    setSchemes(usable);
+    if (!usable.length) {
+      return Modal.info({ title: '暂无可用的方案', content: '请先在「绩效方案」页创建方案并保存（保存后即为可发起状态）。' });
+    }
+    setCreateOpen(true);
+  };
+  const create = async () => {
+    const v = await form.validateFields();
+    try {
+      await api('/api/v1/tasks', { method: 'POST', body: JSON.stringify({
+        schemeId: v.schemeId, name: v.name, period: v.period,
+        startDate: v.range[0].format('YYYY-MM-DD'), endDate: v.range[1].format('YYYY-MM-DD'),
+      }) });
+      message.success('考核任务已发起，考核单与员工待办已生成');
+      setCreateOpen(false); form.resetFields(); load();
+    } catch (e: any) { message.error(e.message); }
+  };
 
   const open = async (id: number) => {
     const d = await api<any>(`/api/v1/tasks/${id}`);
@@ -47,7 +72,7 @@ export default function TaskPage() {
 
   return (
     <>
-      <Card title="考核任务（W-08）">
+      <Card title="考核任务（W-08）" extra={<Button type="primary" onClick={openCreate}>发起考核任务</Button>}>
         <Table rowKey="id" dataSource={list} pagination={false} columns={[
           { title: '任务', dataIndex: 'name' },
           { title: '周期', dataIndex: 'period' },
@@ -81,6 +106,17 @@ export default function TaskPage() {
             { title: '操作', render: (_, r: any) => r.status !== 'archived' ? <Button size="small" onClick={() => remind([r.id])}>催办</Button> : null },
           ]} />
         </>)}
+      </Modal>
+
+      <Modal open={createOpen} onCancel={() => setCreateOpen(false)} onOk={create} title="发起考核任务" okText="发起">
+        <Form form={form} layout="vertical">
+          <Form.Item name="schemeId" label="考核方案" rules={[{ required: true, message: '请选择方案' }]}>
+            <Select options={schemes.map((x: any) => ({ value: x.id, label: `${x.name}（${x.mode} / ${x.periodType}）` }))} placeholder="选择方案（发起后方案自动锁定）" />
+          </Form.Item>
+          <Form.Item name="name" label="任务名称" rules={[{ required: true }]}><Input placeholder="如：Q4 绩效考核" /></Form.Item>
+          <Form.Item name="period" label="周期标识" rules={[{ required: true }]}><Input placeholder="如：2026Q4" style={{ width: 200 }} /></Form.Item>
+          <Form.Item name="range" label="起止日期" rules={[{ required: true }]}><DatePicker.RangePicker /></Form.Item>
+        </Form>
       </Modal>
     </>
   );

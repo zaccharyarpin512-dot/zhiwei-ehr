@@ -19,6 +19,7 @@ export default function SchemePage() {
   const [list, setList] = useState<any[]>([]);
   const [indicators, setIndicators] = useState<any[]>([]);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [step, setStep] = useState(0);
   const [preview, setPreview] = useState<any>(null);
   const [form] = Form.useForm();
@@ -29,7 +30,31 @@ export default function SchemePage() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { api<any[]>('/api/v1/indicators?include_disabled=false').then(setIndicators); }, []);
 
-  const resetWizard = () => { setWizardOpen(true); setStep(0); setPreview(null); form.resetFields(); form.setFieldsValue({ mode: 'kpi', periodType: 'quarter', nodes: ['goal_setting', 'self_review', 'manager_review', 'calibrating', 'result_confirm'] }); };
+  const resetWizard = () => { setEditingId(null); setWizardOpen(true); setStep(0); setPreview(null); form.resetFields(); form.setFieldsValue({ mode: 'kpi', periodType: 'quarter', nodes: ['goal_setting', 'self_review', 'manager_review', 'calibrating', 'result_confirm'] }); };
+
+  // 编辑草稿：拉详情回填向导（锁定方案提示复制）
+  const edit = async (r: any) => {
+    if (r.status !== 'DRAFT') return message.warning('方案已锁定，不能修改——可「复制」为新草稿再编辑');
+    const d = await api<any>(`/api/v1/schemes/${r.id}`);
+    setEditingId(r.id);
+    setWizardOpen(true); setStep(0); setPreview(null);
+    form.setFieldsValue({
+      name: d.name, mode: d.mode, periodType: d.periodType,
+      nodes: (d.nodes || []).map((n: any) => n.nodeType),
+      indicators: (d.indicators || []).map((i: any) => ({ indicatorId: i.indicatorId, weight: Number(i.weight), defaultTarget: i.defaultTarget != null ? Number(i.defaultTarget) : undefined })),
+      reviewers: (d.reviewers || []).map((rv: any) => ({ reviewerType: rv.reviewerType, weight: Number(rv.weight) })),
+      gradeRules: (d.gradeRules || []).map((g: any) => ({ grade: g.grade, minScore: Number(g.minScore), maxScore: Number(g.maxScore) })),
+    });
+  };
+
+  const remove = async (r: any) => {
+    if (r.status !== 'DRAFT') return message.warning('方案已锁定，不能删除（历史考核数据保护）');
+    Modal.confirm({
+      title: `删除方案「${r.name}」？`, content: '仅草稿可删，删除后不可恢复。',
+      okButtonProps: { danger: true },
+      onOk: async () => { await api(`/api/v1/schemes/${r.id}`, { method: 'DELETE' }); message.success('已删除'); load(); },
+    });
+  };
 
   // 第 2 步：选指标设权重（客观/自报自动分组）
   const selIndicators = Form.useWatch('indicators', form) || [];
@@ -47,7 +72,7 @@ export default function SchemePage() {
       return message.error(`KPI 权重合计必须为 100%，当前 ${weightSum.toFixed(1)}%`);
     }
     try {
-      await api('/api/v1/schemes', { method: 'POST', body: JSON.stringify({
+      const payload = {
         name: v.name, mode: v.mode, periodType: v.periodType,
         scopeFilter: v.scopeFilter || {}, nodes: v.nodes.map((n: string, i: number) => ({ nodeType: n, seq: i + 1 })),
         indicators: v.indicators, reviewers: v.reviewers || [{ reviewerType: 'self', weight: 20 }, { reviewerType: 'manager', weight: 80 }],
@@ -56,8 +81,14 @@ export default function SchemePage() {
           { grade: 'B', minScore: 70, maxScore: 79.99, sortNo: 3 }, { grade: 'C', minScore: 60, maxScore: 69.99, sortNo: 4 },
           { grade: 'D', minScore: 0, maxScore: 59.99, sortNo: 5 },
         ],
-      }) });
-      message.success('方案已保存（草稿）');
+      };
+      if (editingId) {
+        await api(`/api/v1/schemes/${editingId}`, { method: 'PUT', body: JSON.stringify(payload) });
+        message.success('方案已更新');
+      } else {
+        await api('/api/v1/schemes', { method: 'POST', body: JSON.stringify(payload) });
+        message.success('方案已保存（草稿）');
+      }
       setWizardOpen(false);
       load();
     } catch (e: any) { message.error(e.message); }
@@ -72,7 +103,11 @@ export default function SchemePage() {
         { title: '模式', dataIndex: 'mode', render: (m) => <Tag>{m}</Tag> },
         { title: '周期', dataIndex: 'periodType' },
         { title: '状态', dataIndex: 'status', render: (s) => <Tag color={s === 'LOCKED' ? 'orange' : s === 'DISABLED' ? 'default' : 'green'}>{s}</Tag> },
-        { title: '操作', render: (_, r: any) => <Space><Button size="small" onClick={() => copy(r.id)}>复制</Button></Space> },
+        { title: '操作', render: (_, r: any) => <Space>
+          <Button size="small" onClick={() => edit(r)}>编辑</Button>
+          <Button size="small" onClick={() => copy(r.id)}>复制</Button>
+          <Button size="small" danger onClick={() => remove(r)}>删除</Button>
+        </Space> },
       ]} />
 
       <Modal open={wizardOpen} onCancel={() => setWizardOpen(false)} width={860} footer={null} title="方案配置向导（5 步）">

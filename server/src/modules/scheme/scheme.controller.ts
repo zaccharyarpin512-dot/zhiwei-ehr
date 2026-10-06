@@ -1,5 +1,5 @@
 // M03 方案控制器
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { IsArray, IsIn, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { AuthGuard, Roles, RolesGuard } from '../../common/guards';
@@ -52,6 +52,10 @@ export class SchemeController {
   @Put(':id')
   @Roles('hr_admin')
   update(@Param('id', ParseIntPipe) id: number, @Body() dto: { name?: string }) { return this.svc.update(id, dto); }
+
+  @Delete(':id')
+  @Roles('hr_admin')
+  remove(@Param('id', ParseIntPipe) id: number) { return this.svc.remove(id); }
 
   @Post(':id/copy')
   @Roles('hr_admin')

@@ -28,7 +28,7 @@ export class SchemeService {
 
   async create(dto: any) {
     const weightSum = (dto.indicators || []).reduce((a: number, b: any) => a + Number(b.weight), 0);
-    if (Math.abs(weightSum - 100) > 0.001) throw Errors.WEIGHT_NOT_100(); // AC2（40001）
+    if ((dto.indicators || []).length > 0 && Math.abs(weightSum - 100) > 0.001) throw Errors.WEIGHT_NOT_100(); // AC2（40001）：有指标时权重必须合计 100
     // 客观指标判定：查指标库 sourceType（dept_report / auto_system 为客观）
     const indRows = await this.prisma.indicator.findMany({
       where: { id: { in: (dto.indicators || []).map((i: any) => Number(i.indicatorId)) } },
@@ -84,12 +84,58 @@ export class SchemeService {
     return list.map((s) => ({ ...s, id: Number(s.id) }));
   }
 
+  // 全量更新：仅草稿且未被任何任务引用时可改配置（FR-M03-002 版本锁定）
   async update(id: number, dto: any) {
     const sc = await this.prisma.scheme.findFirst({ where: { id, isDeleted: false } });
     if (!sc) throw Errors.NOT_FOUND('方案不存在');
-    if (sc.status !== 'DRAFT') throw ERR.SCHEME_LOCKED(); // FR-M03-002
-    const updated = await this.prisma.scheme.update({ where: { id }, data: { name: dto.name ?? sc.name } });
-    return { id: Number(updated.id) };
+    if (sc.status !== 'DRAFT') throw ERR.SCHEME_LOCKED();
+    const used = await this.prisma.assessmentTask.count({ where: { schemeId: id } });
+    if (used > 0) throw ERR.SCHEME_LOCKED();
+    const tid = mustCtx().tenantId;
+    // 客观指标判定（同 create）
+    const indRows = await this.prisma.indicator.findMany({
+      where: { id: { in: (dto.indicators || []).map((i: any) => Number(i.indicatorId)) } },
+      select: { sourceType: true },
+    });
+    const hasObjective = indRows.some((r) => r.sourceType === 'dept_report' || r.sourceType === 'auto_system');
+    this.validate(dto.nodes || [], hasObjective);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.scheme.update({ where: { id }, data: {
+        name: dto.name ?? sc.name, mode: dto.mode ?? sc.mode, periodType: dto.periodType ?? sc.periodType,
+        scopeFilter: dto.scopeFilter ?? undefined, linkageConfig: dto.linkageConfig ?? undefined,
+        taskCreditConfig: dto.taskCreditConfig ?? undefined,
+      } });
+      for (const t of ['schemeReviewer', 'schemeGradeRule', 'schemeQuestion', 'schemeIndicator', 'schemeNode'] as const) {
+        await (tx as any)[t].deleteMany({ where: { schemeId: id } });
+      }
+      for (const [i, n] of (dto.nodes || []).entries()) {
+        await tx.schemeNode.create({ data: { tenantId: tid, schemeId: id, nodeType: n.nodeType, seq: n.seq ?? i + 1, timeConfig: n.timeConfig ?? undefined, enabled: n.enabled ?? true } });
+      }
+      for (const i of dto.indicators || []) {
+        await tx.schemeIndicator.create({ data: { tenantId: tid, schemeId: id, indicatorId: i.indicatorId, weight: i.weight, defaultTarget: i.defaultTarget ?? null } });
+      }
+      for (const q of dto.questions || []) {
+        await tx.schemeQuestion.create({ data: { tenantId: tid, schemeId: id, title: q.title, qType: q.qType, options: q.options ?? undefined, required: q.required ?? true } });
+      }
+      for (const g of dto.gradeRules || []) {
+        await tx.schemeGradeRule.create({ data: { tenantId: tid, schemeId: id, grade: g.grade, minScore: g.minScore, maxScore: g.maxScore, ratioLimit: g.ratioLimit ?? null, sortNo: g.sortNo ?? 0 } });
+      }
+      for (const r of dto.reviewers || []) {
+        await tx.schemeReviewer.create({ data: { tenantId: tid, schemeId: id, reviewerType: r.reviewerType, weight: r.weight, config: r.config ?? undefined } });
+      }
+    });
+    return this.get(id);
+  }
+
+  // 软删除：仅草稿可删（被任务引用的方案只能停用，保住历史数据）
+  async remove(id: number) {
+    const sc = await this.prisma.scheme.findFirst({ where: { id, isDeleted: false } });
+    if (!sc) throw Errors.NOT_FOUND('方案不存在');
+    if (sc.status !== 'DRAFT') throw ERR.SCHEME_LOCKED();
+    const used = await this.prisma.assessmentTask.count({ where: { schemeId: id } });
+    if (used > 0) throw ERR.SCHEME_LOCKED();
+    await this.prisma.scheme.update({ where: { id }, data: { isDeleted: true } });
+    return { id };
   }
 
   async copy(id: number) {
