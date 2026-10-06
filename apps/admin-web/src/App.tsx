@@ -86,7 +86,7 @@ function ShellWithSwitcher({ onLogout, themeKey, onThemeChange }: { onLogout: ()
           <Button icon={<LogoutOutlined />} onClick={onLogout}>退出</Button>
         </Layout.Header>
         <Layout.Content style={{ padding: 24, background: 'var(--bg)' }}>
-          {nav === 'org' ? <OrgPage /> : nav === 'indicators' ? <IndicatorPage /> : nav === 'schemes' ? <SchemePage /> : nav === 'tasks' ? <TaskPage /> : nav === 'datafill' ? <DataFillPage /> : nav === 'reports' ? <ReportPage /> : nav === 'settings' ? <SettingsPage /> : (
+          {nav === 'dashboard' ? <Dashboard /> : nav === 'org' ? <OrgPage /> : nav === 'indicators' ? <IndicatorPage /> : nav === 'schemes' ? <SchemePage /> : nav === 'tasks' ? <TaskPage /> : nav === 'datafill' ? <DataFillPage /> : nav === 'worktasks' ? <WorkTaskPage /> : nav === 'reports' ? <ReportPage /> : nav === 'settings' ? <SettingsPage /> : (
             <div style={{ background: '#fff', borderRadius: 8, padding: 40, color: 'var(--txt3)' }}>
               「{NAV.find((n) => n.key === nav)?.label}」页面建设中（对应开发计划后续 WP）
             </div>
