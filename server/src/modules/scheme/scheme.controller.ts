@@ -57,6 +57,10 @@ export class SchemeController {
   @Roles('hr_admin')
   remove(@Param('id', ParseIntPipe) id: number) { return this.svc.remove(id); }
 
+  @Post(':id/unlock')
+  @Roles('hr_admin')
+  unlock(@Param('id', ParseIntPipe) id: number) { return this.svc.unlock(id); }
+
   @Post(':id/copy')
   @Roles('hr_admin')
   copy(@Param('id', ParseIntPipe) id: number) { return this.svc.copy(id); }

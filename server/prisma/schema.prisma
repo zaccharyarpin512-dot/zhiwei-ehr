@@ -346,6 +346,7 @@ model SchemeReviewer {
 
 // ---------- M05 考核任务与考核单（FR-M05-001，PRD 7.1/7.2 状态机）----------
 enum TaskStatus {
+  DRAFT
   RUNNING
   FINISHED
   TERMINATED
@@ -376,6 +377,7 @@ model AssessmentTask {
   endDate       DateTime   @map("end_date")
   status        TaskStatus @default(RUNNING)
   orgSnapshot   Json?      @map("org_snapshot")
+  scopeFilter   Json?      @map("scope_filter") // 任务级部门/人员选择（与方案 scope 取交集）
   linkedTaskIds Json?      @map("linked_task_ids")
   isDeleted     Boolean    @default(false) @map("is_deleted")
   createdAt     DateTime   @default(now()) @map("created_at")

@@ -1,5 +1,5 @@
 // M05 考核任务控制器（FR-M05-001）
-import { Body, Controller, Get, Param, ParseIntPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, UseGuards } from '@nestjs/common';
 import { IsArray, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { AuthGuard, Roles, RolesGuard } from '../../common/guards';
 import { TaskService } from './task.service';
@@ -11,6 +11,8 @@ export class CreateTaskDto {
   @IsString() @IsNotEmpty() startDate: string;
   @IsString() @IsNotEmpty() endDate: string;
   @IsOptional() @IsArray() linkedTaskIds?: number[];
+  @IsOptional() scopeFilter?: any;
+  @IsOptional() asDraft?: boolean;
 }
 
 @UseGuards(AuthGuard, RolesGuard)
@@ -24,6 +26,21 @@ export class TaskController {
 
   @Get('tasks')
   list() { return this.svc.list(); }
+
+  // 发布草稿任务 → 正式启动考核流程（生成考核单/待办/填报单）
+  @Post('tasks/:id/start')
+  @Roles('hr_admin')
+  start(@Param('id', ParseIntPipe) id: number) { return this.svc.start(id); }
+
+  // 修改草稿任务
+  @Put('tasks/:id')
+  @Roles('hr_admin')
+  updateTask(@Param('id', ParseIntPipe) id: number, @Body() dto: any) { return this.svc.update(id, dto); }
+
+  // 删除草稿任务
+  @Delete('tasks/:id')
+  @Roles('hr_admin')
+  removeTask(@Param('id', ParseIntPipe) id: number) { return this.svc.remove(id); }
 
   @Get('tasks/:id')
   detail(@Param('id', ParseIntPipe) id: number) { return this.svc.detail(id); }

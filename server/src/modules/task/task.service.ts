@@ -12,7 +12,7 @@ export class TaskService {
   constructor(private prisma: PrismaService, private dataFill: DataFillService) {}
 
   // 发起考核任务：人群快照批量生成考核单 + 首节点待办
-  async create(dto: { schemeId: number; name: string; period: string; startDate: string; endDate: string; linkedTaskIds?: number[] }) {
+  async create(dto: { schemeId: number; name: string; period: string; startDate: string; endDate: string; linkedTaskIds?: number[]; scopeFilter?: any; asDraft?: boolean }) {
     const tid = mustCtx().tenantId;
     const scheme: any = await this.prisma.scheme.findFirst({ where: { id: dto.schemeId, isDeleted: false } });
     if (!scheme) throw Errors.NOT_FOUND('方案不存在');
@@ -27,15 +27,55 @@ export class TaskService {
       }
     }
 
+    // ===== 草稿模式：只建任务记录，发布时才生成考核单 =====
+    if (dto.asDraft) {
+      const draft = await this.prisma.assessmentTask.create({
+        data: {
+          tenantId: tid, schemeId: scheme.id, schemeVersion: scheme.version, name: dto.name, period: dto.period,
+          startDate: new Date(dto.startDate), endDate: new Date(dto.endDate), status: 'DRAFT',
+          scopeFilter: dto.scopeFilter ?? undefined, linkedTaskIds: dto.linkedTaskIds ?? undefined,
+        },
+      });
+      return { id: Number(draft.id), recordCount: 0, status: 'DRAFT' };
+    }
+
+    // 兼容旧行为（直接创建=立即发布）：先以 DRAFT 落库再走统一发布逻辑
+    const t0 = await this.prisma.assessmentTask.create({
+      data: {
+        tenantId: tid, schemeId: scheme.id, schemeVersion: scheme.version, name: dto.name, period: dto.period,
+        startDate: new Date(dto.startDate), endDate: new Date(dto.endDate), status: 'DRAFT',
+        scopeFilter: dto.scopeFilter ?? undefined, linkedTaskIds: dto.linkedTaskIds ?? undefined,
+      },
+    });
+    return this.start(Number(t0.id));
+  }
+
+  // 发布任务（草稿 → RUNNING）：按方案适用范围+任务级选择拍快照，生成考核单/待办/填报单
+  async start(taskId: number) {
+    const tid = mustCtx().tenantId;
+    const task: any = await this.prisma.assessmentTask.findFirst({ where: { id: taskId, isDeleted: false } });
+    if (!task) throw Errors.NOT_FOUND('任务不存在');
+    if (task.status !== 'DRAFT') throw new BusinessError(40920, '仅草稿任务可发布', 409);
+    const scheme: any = await this.prisma.scheme.findFirst({ where: { id: task.schemeId, isDeleted: false } });
+    if (!scheme) throw Errors.NOT_FOUND('方案不存在');
+    const dto = { name: task.name };
+
     // FR-M01-003：按适用范围拍组织快照（任务期内人员调动不影响已生成名单）
     const emps = await this.prisma.employee.findMany({
       where: { isDeleted: false, status: { in: ['ACTIVE', 'PROBATION'] } },
       select: { id: true, empNo: true, name: true, departmentId: true, managerEmpId: true, userId: true, jobLevel: true, hireDate: true },
     });
     const scope: any = scheme.scopeFilter;
+    const tscope: any = task.scopeFilter;
     const filtered = emps.filter((e) => {
       if (scope?.deptIds?.length && !scope.deptIds.map(Number).includes(Number(e.departmentId))) return false;
       if (scope?.jobLevels?.length && !scope.jobLevels.includes(e.jobLevel)) return false;
+      // 任务级选择：与方案范围取交集（deptIds/empIds 任一命中即可）
+      if (tscope && (tscope.deptIds?.length || tscope.empIds?.length)) {
+        const inDept = tscope.deptIds?.length ? tscope.deptIds.map(Number).includes(Number(e.departmentId)) : false;
+        const inEmp = tscope.empIds?.length ? tscope.empIds.map(Number).includes(Number(e.id)) : false;
+        if (!inDept && !inEmp) return false;
+      }
       return true;
     });
     if (filtered.length === 0) throw new BusinessError(40015, '适用范围内没有在职员工，无法发起任务');
@@ -51,13 +91,13 @@ export class TaskService {
     });
     const indPairs = indicators.map((si) => ({ schemeIndicator: si, detail: indDetails.find((d) => d.id === si.indicatorId) }));
 
-    const task = await this.prisma.$transaction(async (tx) => {
-      const t = await tx.assessmentTask.create({
+    const t = task;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.assessmentTask.update({
+        where: { id: task.id },
         data: {
-          tenantId: tid, schemeId: scheme.id, schemeVersion: scheme.version, name: dto.name, period: dto.period,
-          startDate: new Date(dto.startDate), endDate: new Date(dto.endDate),
+          status: 'RUNNING',
           orgSnapshot: { employees: filtered.map((e) => ({ empId: Number(e.id), empNo: e.empNo, name: e.name, deptId: Number(e.departmentId), managerEmpId: e.managerEmpId ? Number(e.managerEmpId) : null })) },
-          linkedTaskIds: dto.linkedTaskIds ?? undefined,
         },
       });
       const startStatus = initialStatus(nodes.map((n) => ({ nodeType: n.nodeType, enabled: n.enabled })));
@@ -100,9 +140,35 @@ export class TaskService {
       });
       // FR-M03-002：方案首次被任务引用即锁定
       if (scheme.status === 'DRAFT') await tx.scheme.update({ where: { id: scheme.id }, data: { status: 'LOCKED' } });
-      return t;
     });
-    return { id: Number(task.id), recordCount: filtered.length };
+    return { id: Number(t.id), recordCount: filtered.length, status: 'RUNNING' };
+  }
+
+  // 修改草稿任务（名称/周期/日期/范围）
+  async update(taskId: number, dto: any) {
+    const task: any = await this.prisma.assessmentTask.findFirst({ where: { id: taskId, isDeleted: false } });
+    if (!task) throw Errors.NOT_FOUND('任务不存在');
+    if (task.status !== 'DRAFT') throw new BusinessError(40920, '仅草稿任务可修改（已发布的任务不能改）', 409);
+    const updated = await this.prisma.assessmentTask.update({
+      where: { id: taskId },
+      data: {
+        name: dto.name ?? task.name, period: dto.period ?? task.period,
+        startDate: dto.startDate ? new Date(dto.startDate) : task.startDate,
+        endDate: dto.endDate ? new Date(dto.endDate) : task.endDate,
+        schemeId: dto.schemeId ? Number(dto.schemeId) : task.schemeId,
+        scopeFilter: dto.scopeFilter ?? task.scopeFilter,
+      },
+    });
+    return { id: Number(updated.id) };
+  }
+
+  // 删除草稿任务（未发布=无考核单数据，物理删除安全）
+  async remove(taskId: number) {
+    const task: any = await this.prisma.assessmentTask.findFirst({ where: { id: taskId, isDeleted: false } });
+    if (!task) throw Errors.NOT_FOUND('任务不存在');
+    if (task.status !== 'DRAFT') throw new BusinessError(40920, '仅草稿任务可删除（已发布的任务请用「终止」）', 409);
+    await this.prisma.assessmentTask.delete({ where: { id: taskId } });
+    return { id: taskId };
   }
 
   async list() {

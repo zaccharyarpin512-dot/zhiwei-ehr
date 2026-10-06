@@ -127,6 +127,17 @@ export class SchemeService {
     return this.get(id);
   }
 
+  // 解锁：LOCKED → DRAFT。仅未被任务引用时可解锁（被引用=有考核数据依赖其配置）
+  async unlock(id: number) {
+    const sc = await this.prisma.scheme.findFirst({ where: { id, isDeleted: false } });
+    if (!sc) throw Errors.NOT_FOUND('方案不存在');
+    if (sc.status !== 'LOCKED') throw new BusinessError(40023, '仅锁定状态的方案需要解锁', 400);
+    const used = await this.prisma.assessmentTask.count({ where: { schemeId: id } });
+    if (used > 0) throw new BusinessError(40921, '方案已被考核任务引用，不能解锁（可复制为新方案）', 409);
+    await this.prisma.scheme.update({ where: { id }, data: { status: 'DRAFT' } });
+    return { id, status: 'DRAFT' };
+  }
+
   // 软删除：仅草稿可删（被任务引用的方案只能停用，保住历史数据）
   async remove(id: number) {
     const sc = await this.prisma.scheme.findFirst({ where: { id, isDeleted: false } });

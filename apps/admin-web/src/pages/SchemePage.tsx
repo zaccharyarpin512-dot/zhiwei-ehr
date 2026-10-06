@@ -96,6 +96,14 @@ export default function SchemePage() {
 
   const copy = async (id: number) => { await api(`/api/v1/schemes/${id}/copy`, { method: 'POST' }); message.success('已复制为新草稿'); load(); };
 
+  const unlock = async (r: any) => {
+    try {
+      await api(`/api/v1/schemes/${r.id}/unlock`, { method: 'POST' });
+      message.success('已解锁为草稿，可编辑或删除');
+      load();
+    } catch (e: any) { message.error(e.message); }
+  };
+
   return (
     <Card title="绩效方案" extra={<Button type="primary" onClick={resetWizard}>新建方案</Button>}>
       <Table rowKey="id" dataSource={list} pagination={false} columns={[
@@ -105,6 +113,7 @@ export default function SchemePage() {
         { title: '状态', dataIndex: 'status', render: (s) => <Tag color={s === 'LOCKED' ? 'orange' : s === 'DISABLED' ? 'default' : 'green'}>{s}</Tag> },
         { title: '操作', render: (_, r: any) => <Space>
           <Button size="small" onClick={() => edit(r)}>编辑</Button>
+          {r.status === 'LOCKED' && <Button size="small" onClick={() => unlock(r)}>解锁</Button>}
           <Button size="small" onClick={() => copy(r.id)}>复制</Button>
           <Button size="small" danger onClick={() => remove(r)}>删除</Button>
         </Space> },
