@@ -3,4 +3,5 @@ dist
 coverage
 .pgdata
 *.log
-.env.local
+.env
+server/.env

@@ -1,6 +1,6 @@
 // W-03/04 组织与员工页（FR-M01-001/002）：左树右表 + Excel 批量导入（含错误报告）
 import { useCallback, useEffect, useState } from 'react';
-import { Button, Input, Modal, Select, Table, Tag, Tree, Upload, message } from 'antd';
+import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Table, Tag, Tree, Upload, message } from 'antd';
 import { UploadOutlined, PlusOutlined } from '@ant-design/icons';
 import { api } from '../api';
 
@@ -126,4 +126,36 @@ export default function OrgPage() {
       </Modal>
     </div>
   );
+}
+
+// WP-6 补：单个新建员工表单（不导 Excel 也能加人）
+export function EmployeeCreateButton({ deptId, onCreated }: { deptId?: number; onCreated: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [form] = Form.useForm();
+  const submit = async () => {
+    const v = await form.validateFields();
+    try {
+      await api('/api/v1/employees', { method: 'POST', body: JSON.stringify({
+        empNo: v.empNo, name: v.name, mobile: v.mobile, hireDate: v.hireDate.format('YYYY-MM-DD'),
+        position: v.position, departmentId: deptId ?? v.departmentId,
+      }) });
+      message.success('员工已创建');
+      setOpen(false); form.resetFields(); onCreated();
+    } catch (e: any) { message.error(e.message); }
+  };
+  return <>
+    <Button type="primary" onClick={() => setOpen(true)}>新建员工</Button>
+    <Modal open={open} onCancel={() => setOpen(false)} onOk={submit} title="新建员工">
+      <Form form={form} layout="vertical">
+        <Form.Item name="empNo" label="工号" rules={[{ required: true }]}><Input /></Form.Item>
+        <Form.Item name="name" label="姓名" rules={[{ required: true }]}><Input /></Form.Item>
+        <Form.Item name="mobile" label="手机号" rules={[{ required: true }]}><Input /></Form.Item>
+        <Space size="large">
+          <Form.Item name="position" label="岗位" rules={[{ required: true }]}><Input style={{ width: 150 }} /></Form.Item>
+          {!deptId && <Form.Item name="departmentId" label="部门ID" rules={[{ required: true }]}><InputNumber style={{ width: 120 }} /></Form.Item>}
+        </Space>
+        <Form.Item name="hireDate" label="入职日期" rules={[{ required: true }]}><DatePicker /></Form.Item>
+      </Form>
+    </Modal>
+  </>;
 }

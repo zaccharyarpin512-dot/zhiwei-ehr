@@ -17,7 +17,7 @@ const mockFetch = (routes: Record<string, any>) => {
 };
 
 describe('WP-12 方案向导页', () => {
-  it('指标选项带客观 🔒 标识，权重合计实时提示（AC2/AC4）', { timeout: 20000 }, async () => {
+  it('指标选项带客观 🔒 标识，权重合计实时提示（AC2/AC4）', async () => {
     mockFetch({
       '/api/v1/schemes': [],
       '/api/v1/indicators?include_disabled=false': [

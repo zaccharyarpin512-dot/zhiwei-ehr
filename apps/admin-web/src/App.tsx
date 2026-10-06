@@ -12,6 +12,8 @@ import SchemePage from './pages/SchemePage';
 import TaskPage from './pages/TaskPage';
 import DataFillPage from './pages/DataFillPage';
 import ReportPage from './pages/ReportPage';
+import WorkTaskPage, { Dashboard } from './pages/WorkTaskPage';
+import SettingsPage from './pages/SettingsPage';
 
 // 四套皮肤对应的 AntD 主色（与设计令牌保持一致；皮肤切换=换一组变量+antd token）
 const ANTD_PRIMARY: Record<string, string> = {
@@ -84,7 +86,7 @@ function ShellWithSwitcher({ onLogout, themeKey, onThemeChange }: { onLogout: ()
           <Button icon={<LogoutOutlined />} onClick={onLogout}>退出</Button>
         </Layout.Header>
         <Layout.Content style={{ padding: 24, background: 'var(--bg)' }}>
-          {nav === 'org' ? <OrgPage /> : nav === 'indicators' ? <IndicatorPage /> : nav === 'schemes' ? <SchemePage /> : nav === 'tasks' ? <TaskPage /> : nav === 'datafill' ? <DataFillPage /> : nav === 'reports' ? <ReportPage /> : (
+          {nav === 'org' ? <OrgPage /> : nav === 'indicators' ? <IndicatorPage /> : nav === 'schemes' ? <SchemePage /> : nav === 'tasks' ? <TaskPage /> : nav === 'datafill' ? <DataFillPage /> : nav === 'reports' ? <ReportPage /> : nav === 'settings' ? <SettingsPage /> : (
             <div style={{ background: '#fff', borderRadius: 8, padding: 40, color: 'var(--txt3)' }}>
               「{NAV.find((n) => n.key === nav)?.label}」页面建设中（对应开发计划后续 WP）
             </div>
